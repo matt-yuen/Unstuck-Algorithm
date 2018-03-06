@@ -73,8 +73,7 @@ void turtleCallback (const nav_msgs::Odometry&msg)
         initialYaw = yaw;
     cnt++;
 
-    //
-
+/*
     if(checkIfStuck() && state == 0)
     {
         state = 1;
@@ -88,29 +87,10 @@ void turtleCallback (const nav_msgs::Odometry&msg)
     {
         updateStateMsg("stuck");
     }
+*/
 
-    //Initialize prevOdom?
-
-    //CASE 1
-    if (state == 1)
-    {
-    	//CASE 1, SUBCASE 0
-    	if (subState == 0)
-    	{
-    		updatePrevOdom(msg);
-
-    		//Move back 5 m
-    		if (atDestination (-5, msg, yaw))
-    			move (0, 0);
-    		else
-    			move (1, 0);
-
-    		//Turn right 45 degrees and move 10 m forward
-
-    	}
-    }
-
-    sampleTurn(M_PI/2, yaw, initialYaw);
+    //Don't need this function anymore because we have turned
+    //sampleTurn(M_PI/2, yaw, initialYaw);
 
 }
 
@@ -204,4 +184,27 @@ bool turned(double targetAngle, double initYaw, double yaw)
 		return true;
 
 	return false;
+}
+
+bool algPartOne (const nav_msgs::Odometry & msg, double yaw)
+{
+    if (state == 1)
+    {
+    	//CASE 1, SUBCASE 0
+    	if (subState == 0)
+    	{
+    		updatePrevOdom(msg);
+
+    		//Move back 5 m
+    		if (atDestination (-5, msg, yaw))
+    			move (0, 0);
+    		else
+    			move (1, 0);
+
+    		//Turn right 45 degrees and move 10 m forward
+    		if (turned(45, initialYaw, yaw))
+    		move (0, 1);
+
+    	}
+    }
 }

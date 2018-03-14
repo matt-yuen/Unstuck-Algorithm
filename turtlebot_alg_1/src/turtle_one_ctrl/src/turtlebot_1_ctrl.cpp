@@ -20,6 +20,12 @@ double initialYaw;
 int cnt = 0;
 int state, subState;
 
+// Changed
+double roll, pitch, yaw;
+
+// Added
+double backDistance;
+
 void turtleCallback(const nav_msgs::Odometry&msg);
 void extractRPY(double & r, double & p, double& y, const nav_msgs::Odometry& msg); // converts the odometry message to roll pitch and yaw
 // void extractPosition()
@@ -29,12 +35,13 @@ void sampleTurn (double angle, double yaw, double initialYaw);
 bool checkIfStuck();
 void move(double linSpeed, double angularSpeed);
 bool atDestination(double distance, const nav_msgs::Odometry& currPos, double yaw); //maybe instead take in the aldready processed x and y coordinates
-bool turned(double targetAngle, double initYaw, double yaw); //targetAngle should be in degrees, the rest in radians
+bool turned(double targetAngle, double initYaw, double yaw); //all angles in rad
 void updatePrevOdom(const nav_msgs::Odometry& msg);
 void updateStateMsg(string message); // to publish a message to the statePub channel
+bool algPartOne (const nav_msgs::Odometry & msg, double yaw);
 
-
-
+//Variables used for testing
+int turnCount;
 
 int main(int a, char ** b)
 {
@@ -42,12 +49,17 @@ int main(int a, char ** b)
 
     ros::NodeHandle n;
     cnt = 0;
+    turnCount = 0;
 
     pub  = n.advertise<geometry_msgs::Twist>("/mobile_base/commands/velocity",1);
     statePub = n.advertise<std_msgs::String>("/unstuck_node/message",1);
 
     sub = n.subscribe("/odom", 1, turtleCallback);
-    state = subState = 0;
+    //state = subState = 0;
+
+    //Testing
+	state = 1;
+    subState = 0;
 
     ros::Rate loop_rate(60);
     while( ros::ok())
@@ -57,7 +69,6 @@ int main(int a, char ** b)
     }
 
     return 0;
-
 }
   
 
@@ -66,7 +77,6 @@ void turtleCallback (const nav_msgs::Odometry&msg)
     //get all relevant odometry info:
     int x = msg.pose.pose.position.x;
     int y = msg.pose.pose.position.y;
-    double roll, pitch, yaw;
     extractRPY(roll,pitch,yaw, msg);
 
     if(cnt == 0)
@@ -92,6 +102,34 @@ void turtleCallback (const nav_msgs::Odometry&msg)
     //Don't need this function anymore because we have turned
     //sampleTurn(M_PI/2, yaw, initialYaw);
 
+    //Testing "turned" function
+/*    if (!turned(M_PI/2, initialYaw, yaw))
+    {
+    	ROS_INFO("still turning");
+    	move(0, 0.1);
+    }
+    else
+    {
+    	ROS_INFO("done turning");
+    	move(0, 0);	
+    }*/
+
+    //Testing atDestination function
+    /*if (!atDestination(2, msg, yaw) && turnCount == 0)
+    {
+    	ROS_INFO("still moving");
+    	move(0.2, 0);
+    }
+    else
+    {
+    	turnCount++;
+    	ROS_INFO("done moving");
+    	move(0,0);
+    }*/
+
+    //Testing alg part one
+    if (state == 1)
+    	algPartOne(msg, yaw);
 }
 
 void extractRPY(double & r, double & p, double& y, const nav_msgs::Odometry& msg)
@@ -166,7 +204,7 @@ bool atDestination(double distance, const nav_msgs::Odometry& currPos, double ya
     double xPrev = prevOdom.pose.pose.position.x;
     double yPrev = prevOdom.pose.pose.position.y;
     double xDest = xPrev + distance*cos(yaw);
-    double yDest = yPrev +distance*sin(yaw);
+    double yDest = yPrev + distance*sin(yaw);
 
     if (fabs(xDest - xCurrent) < 1e-1 && fabs(yDest - yCurrent) < 1e-1)
     {
@@ -179,8 +217,9 @@ bool atDestination(double distance, const nav_msgs::Odometry& currPos, double ya
 
 bool turned(double targetAngle, double initYaw, double yaw)
 {
-	double angle = targetAngle * 180 / M_PI;
-	if (fabs(fabs(yaw-initialYaw)) - angle < 1e-1)
+	double targetYaw = initialYaw + targetAngle; //Angle from positive x-axis after turning the desired "targetAngle"
+
+	if (fabs(targetYaw - yaw) < 1e-2)
 		return true;
 
 	return false;
@@ -188,23 +227,169 @@ bool turned(double targetAngle, double initYaw, double yaw)
 
 bool algPartOne (const nav_msgs::Odometry & msg, double yaw)
 {
-    if (state == 1)
-    {
-    	//CASE 1, SUBCASE 0
-    	if (subState == 0)
-    	{
-    		updatePrevOdom(msg);
+	//****these don't work...->??
+	int linearSpeed = 0;
+	int angularSpeed = 0;
 
-    		//Move back 5 m
-    		if (atDestination (-5, msg, yaw))
-    			move (0, 0);
-    		else
-    			move (1, 0);
+	switch (subState)
+	{
+		//******RESET ALL CHECKING VARIABLES IN EACH SUBCASE?********
 
-    		//Turn right 45 degrees and move 10 m forward
-    		if (turned(45, initialYaw, yaw))
-    		move (0, 1);
+		//Move back 5 m
+		case 0:
+			if (!atDestination(2, msg, yaw))
+			{
+				ROS_INFO("Moving");
+				move(0.2, 0);
+			}
+			else
+			{
+				ROS_INFO("Done moving");
+				subState = 1;
+				move(0, 0);
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+			}
 
-    	}
-    }
+			//If can't move back 5 m successfully, change state to 2 
+			if (checkIfStuck())
+			{
+				state = 2;
+				subState = 0;
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+				ROS_INFO("Stuck");
+			}
+
+			break;
+		//Turn right 45, assume successful
+		case 1:
+			if (!turned(-M_PI/4, initialYaw, yaw))// && !turnedYet) 
+			{
+				ROS_INFO("TURNING");
+				move(0, -0.3);
+			}
+			else
+			{
+				ROS_INFO("DONE TURNING");
+				subState = 2;
+				move(0, 0);
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+			}
+
+			break;
+		//Go forward 
+		case 2:
+			if (!atDestination(5/cos(M_PI/4), msg, yaw))
+			{
+				ROS_INFO("Moving");
+				move(0.2, 0);
+			}
+			else //*****UNSTUCK*****
+			{
+				ROS_INFO("Done moving");
+				//subState = 4;
+				move(0, 0);
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+			}
+
+			if (checkIfStuck())
+			{
+				subState = 3;
+				updatePrevOdom(msg);
+				ROS_INFO("Stuck");
+				initialYaw - yaw;
+				extractRPY(roll, pitch, yaw, msg);
+				move(0, 0);
+				backDistance = fabs(msg.pose.pose.orientation.x - prevOdom.pose.pose.orientation.x) / cos(yaw);
+			}
+
+			break;
+		//Stuck from case 2, go back to prevOdom
+		case 3:
+			if (!atDestination(-backDistance, msg, yaw))
+			{
+				ROS_INFO("Moving");
+				move(-0.2, 0);
+			}
+			else
+			{
+				ROS_INFO("Done moving");
+				subState = 4;
+				move(0, 0);
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+			}
+
+			break;
+		case 4:
+			if (!turned(M_PI/2, initialYaw, yaw))
+			{
+				ROS_INFO("Moving");
+				move(0, 0.3);
+			}
+			else
+			{
+				ROS_INFO("Done moving");
+				subState = 5;
+				move(0, 0);
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+			}
+
+			break;
+		case 5:
+			if (!atDestination(5/cos(M_PI/4), msg, yaw))
+			{
+				ROS_INFO("Moving");
+				move(0.2, 0);
+			}
+			else //*****UNSTUCK*****
+			{
+				ROS_INFO("Done moving");
+				//subState = 4;
+				move(0, 0);
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+			}
+
+			if (checkIfStuck())
+			{
+				subState = 6;
+				updatePrevOdom(msg);
+				ROS_INFO("Stuck");
+				initialYaw - yaw;
+				extractRPY(roll, pitch, yaw, msg);
+				move(0, 0);
+				backDistance = fabs(msg.pose.pose.orientation.x - prevOdom.pose.pose.orientation.x) / cos(yaw);
+			}
+
+			break;
+		case 6:
+			if (!atDestination(-backDistance, msg, yaw))
+			{
+				ROS_INFO("Moving");
+				move(-0.2, 0);
+			}
+			else
+			{
+				ROS_INFO("Done moving");
+				subState = 4;
+				move(0, 0);
+				updatePrevOdom(msg);
+				initialYaw = yaw;
+				extractRPY(roll, pitch, yaw, msg);
+			}
+
+			break;
+	}
 }
